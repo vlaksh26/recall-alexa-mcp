@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Recall: simulated Alexa+</title>
+<style>
+:root{--bg:#0f1720;--card:#18222e;--fg:#e8eef5;--mut:#8aa0b5;--acc:#31c4f3}
+*{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+main{display:grid;grid-template-columns:1fr 340px;gap:16px;max-width:1000px;margin:0 auto;padding:16px}
+@media(max-width:760px){main{grid-template-columns:1fr}}
+section{background:var(--card);border-radius:14px;padding:16px}h1{font-size:18px;margin:0 0 4px}h2{font-size:14px;margin:0 0 10px;color:var(--mut)}
+#ring{width:56px;height:56px;border-radius:50%;border:5px solid #26465a;margin:8px auto 12px;transition:.2s}
+#ring.on{border-color:var(--acc);box-shadow:0 0 18px var(--acc)}
+#log{height:330px;overflow:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.b{padding:8px 12px;border-radius:12px;max-width:85%}.you{background:#27415a;align-self:flex-end}.alexa{background:#12303b;border:1px solid #1f4a5b}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}input[type=text]{flex:1;min-width:140px}
+input,button{font:inherit;padding:8px 12px;border-radius:10px;border:1px solid #2b3d4f;background:#0f1720;color:var(--fg)}
+button{cursor:pointer}button.go{background:var(--acc);color:#04202b;border:0}button.on{background:#c0392b}button:disabled{opacity:.4}
+.call{border-left:3px solid var(--acc);padding:6px 10px;margin-bottom:8px;background:#101a24;border-radius:6px;font-size:13px}
+.call code{color:#9fe3ff}.call small{color:var(--mut);display:block;word-break:break-word}
+#calls{max-height:520px;overflow:auto}
+</style></head><body><main>
+<section><h1>Recall on Alexa+ (simulated)</h1><h2>Speak with the mic, or type. Replies are spoken aloud.</h2>
+<div id="ring"></div><div id="log"></div>
+<div class="row"><input id="in" type="text" placeholder="Say something, e.g. quiz me" autocomplete="off">
+<button class="go" id="send">Send</button><button id="mic" title="Needs Chrome">Mic</button></div>
+<div class="row"><button data-q="load the demo deck">Load demo deck</button><button data-q="quiz me">Quiz me</button>
+<button data-q="how am I doing">Progress</button><button data-q="skip a day">Skip a day</button>
+<label><input type="checkbox" id="speak" checked> Speak replies</label></div></section>
+<section><h2>MCP calls (live)</h2><div id="calls"></div></section></main>
+<script>
+const $=id=>document.getElementById(id),log=$('log'),calls=$('calls'),input=$('in');
+function bubble(who,text){const d=document.createElement('div');d.className='b '+who;d.textContent=text;log.append(d);log.scrollTop=log.scrollHeight}
+function addCall(c){const d=document.createElement('div');d.className='call';
+d.innerHTML='<code></code> <span></span><small></small>';d.children[0].textContent=c.tool;
+d.children[1].textContent=c.ms+' ms';d.children[2].textContent=JSON.stringify(c.args)+' → '+(c.speech||'');
+calls.prepend(d)}
+function speak(t){if(!$('speak').checked||!window.speechSynthesis)return;speechSynthesis.cancel();
+const u=new SpeechSynthesisUtterance(t);u.onstart=()=>$('ring').classList.add('on');u.onend=()=>$('ring').classList.remove('on');speechSynthesis.speak(u)}
+async function send(text){text=text.trim();if(!text)return;bubble('you',text);input.value='';
+try{const r=await fetch('/api/say',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+const d=await r.json();bubble('alexa',d.reply);(d.trace||[]).forEach(addCall);speak(d.reply)}
+catch(e){bubble('alexa','Something went wrong: '+e)}}
+$('send').onclick=()=>send(input.value);input.onkeydown=e=>{if(e.key==='Enter')send(input.value)};
+document.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>send(b.dataset.q));
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(SR){const rec=new SR();rec.lang='en-US';rec.onresult=e=>send(e.results[0][0].transcript);
+rec.onend=()=>$('mic').classList.remove('on');$('mic').onclick=()=>{speechSynthesis.cancel();rec.start();$('mic').classList.add('on')}}
+else{$('mic').disabled=true}
+bubble('alexa','Hi! Try "load the demo deck", then "quiz me".');
+</script></body></html>
