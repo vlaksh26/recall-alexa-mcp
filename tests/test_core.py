@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core import Store, sm2  # noqa: E402
+from core import Store, rating_for, score_explanation, sm2  # noqa: E402
 
 
 def test_sm2_interval_progression():
@@ -67,6 +67,83 @@ def test_streak_and_stats():
     assert st["streak_days"] == 3
     assert st["total_cards"] == 1
     assert st["reviewed_today"] == 0   # the clock moved on to a fresh day
+
+
+PHOTO = [
+    {"point": "plants use sunlight", "keywords": ["sunlight", "light"]},
+    {"point": "chlorophyll captures the light", "keywords": ["chlorophyll"]},
+    {"point": "carbon dioxide and water go in", "keywords": ["carbon dioxide", "co2"]},
+    {"point": "glucose and oxygen come out", "keywords": ["glucose", "sugar"]},
+]
+
+
+def test_score_explanation_matches_keywords_and_prefixes():
+    covered, missed, ratio = score_explanation(
+        "Plants take in Sunlight and CO2, and chlorophyll helps.", PHOTO
+    )
+    assert len(covered) == 3 and missed == ["glucose and oxygen come out"]
+    assert ratio == 0.75
+    # prefix matching: the keyword "photosynthes" matches "photosynthesis"
+    c, _, _ = score_explanation(
+        "photosynthesis", [{"point": "p", "keywords": ["photosynthes"]}]
+    )
+    assert c == ["p"]
+    # a keyword must start a word, so "light" does not match "delightful"
+    c, _, _ = score_explanation("delightful", [{"point": "p", "keywords": ["light"]}])
+    assert c == []
+
+
+def test_rating_for_thresholds():
+    assert rating_for(1.0) == "good"
+    assert rating_for(0.85) == "good"
+    assert rating_for(0.6) == "hard"
+    assert rating_for(0.49) == "again"
+
+
+def test_teach_back_scores_and_reschedules():
+    s = Store()
+    cid = s.add_concept("bio", "photosynthesis", PHOTO)
+    assert s.next_due("bio")[0]["front"] == "Explain photosynthesis in your own words."
+    r = s.teach_back(cid, "Sunlight, chlorophyll, carbon dioxide and glucose are involved")
+    assert r["coverage"] == 1.0 and r["rating"] == "good" and r["missed"] == []
+    assert s.count_due() == 0            # rescheduled into the future
+    s.advance_days(1)
+    r = s.teach_back(cid, "I have no idea")
+    assert r["rating"] == "again" and len(r["missed"]) == 4
+
+
+def test_teach_back_errors():
+    s = Store()
+    (plain,) = s.add_cards("bio", [{"front": "Q", "back": "A"}])
+    for bad in (
+        lambda: s.teach_back(plain, "anything"),                  # no key points
+        lambda: s.teach_back(999, "anything"),                    # no such card
+        lambda: s.add_concept("bio", "x", [{"point": "p", "keywords": []}]),
+    ):
+        try:
+            bad()
+        except (ValueError, KeyError):
+            pass
+        else:
+            raise AssertionError("expected an error")
+
+
+def test_old_database_gets_the_points_column():
+    import sqlite3
+    import tempfile
+
+    path = os.path.join(tempfile.mkdtemp(), "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE cards (id INTEGER PRIMARY KEY AUTOINCREMENT, deck TEXT NOT NULL,"
+        " front TEXT NOT NULL, back TEXT NOT NULL, repetitions INTEGER NOT NULL DEFAULT 0,"
+        " interval_days INTEGER NOT NULL DEFAULT 0, ease REAL NOT NULL DEFAULT 2.5,"
+        " due TEXT NOT NULL, lapses INTEGER NOT NULL DEFAULT 0);"
+    )
+    old.commit()
+    old.close()
+    s = Store(path)  # must upgrade the old table without losing it
+    assert s.add_concept("bio", "x", [{"point": "p", "keywords": ["k"]}]) == 1
 
 
 if __name__ == "__main__":

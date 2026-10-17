@@ -37,7 +37,12 @@ def next_due(deck: str | None = None) -> dict:
     card = cards[0]
     return {
         "speech": card["front"],
-        "card": {"id": card["id"], "front": card["front"], "back": card["back"]},
+        "card": {
+            "id": card["id"],
+            "front": card["front"],
+            "back": card["back"],
+            "kind": "concept" if card["points"] else "fact",
+        },
         "remaining": store.count_due(deck),
     }
 
@@ -53,6 +58,38 @@ def grade_answer(card_id: int, rating: str) -> dict:
     days = r["interval_days"]
     when = "tomorrow" if days == 1 else f"in {days} days"
     return {"speech": f"The answer was: {r['back']}. I'll ask again {when}.", **r}
+
+
+@mcp.tool()
+def add_concept(deck: str, title: str, key_points: list[dict]) -> dict:
+    """Add a concept the user must explain aloud (teach-back).
+    key_points is a list of {"point": short idea, "keywords": [words that show
+    the idea was mentioned]}. Use word stems for keywords, e.g. "photosynthes"."""
+    try:
+        card_id = store.add_concept(deck, title, key_points)
+    except (ValueError, KeyError, TypeError) as e:
+        return {"speech": f"Sorry, I couldn't add that concept. {e}", "error": str(e)}
+    return {"speech": f"Added the concept {title} to {deck}.", "card_id": card_id}
+
+
+@mcp.tool()
+def teach_back(card_id: int, explanation: str) -> dict:
+    """Check the user's spoken explanation of a concept card (kind = "concept").
+    Pass what the user said as `explanation`. Reports which key points were
+    covered or missed, and reschedules the card automatically."""
+    try:
+        r = store.teach_back(card_id, explanation)
+    except (ValueError, KeyError) as e:
+        return {"speech": f"Sorry, I couldn't check that. {e}", "error": str(e)}
+    total = len(r["covered"]) + len(r["missed"])
+    days = r["interval_days"]
+    when = "tomorrow" if days == 1 else f"in {days} days"
+    speech = f"You covered {len(r['covered'])} of {total} key points."
+    if r["missed"]:
+        speech += " You missed: " + "; ".join(r["missed"]) + "."
+    else:
+        speech += " Nicely done."
+    return {"speech": f"{speech} I'll ask again {when}.", **r}
 
 
 @mcp.tool()

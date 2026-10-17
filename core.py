@@ -5,6 +5,8 @@ is plain Python that can be unit-tested without a server.
 """
 from __future__ import annotations
 
+import json
+import re
 import sqlite3
 from datetime import date, timedelta
 
@@ -30,6 +32,36 @@ def sm2(quality: int, repetitions: int, interval: int, ease: float):
     return repetitions, interval, ease
 
 
+def score_explanation(explanation: str, key_points: list[dict]):
+    """Check which key points a spoken explanation covered.
+
+    Each key point is {"point": "...", "keywords": ["...", ...]}. A point counts
+    as covered if ANY of its keywords appears at the start of a word in the
+    explanation, so the keyword "photosynthes" matches "photosynthesis".
+    Returns (covered_points, missed_points, ratio).
+    """
+    text = re.sub(r"[^a-z0-9\s]", " ", explanation.lower())
+    covered, missed = [], []
+    for kp in key_points:
+        hit = any(
+            re.search(r"\b" + re.escape(kw.lower().strip()), text)
+            for kw in kp.get("keywords", [])
+            if kw.strip()
+        )
+        (covered if hit else missed).append(kp["point"])
+    ratio = len(covered) / len(key_points) if key_points else 0.0
+    return covered, missed, ratio
+
+
+def rating_for(ratio: float) -> str:
+    """Turn explanation coverage into a review rating."""
+    if ratio >= 0.85:
+        return "good"
+    if ratio >= 0.5:
+        return "hard"
+    return "again"
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cards (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,7 +72,8 @@ CREATE TABLE IF NOT EXISTS cards (
   interval_days INTEGER NOT NULL DEFAULT 0,
   ease          REAL    NOT NULL DEFAULT 2.5,
   due           TEXT    NOT NULL,
-  lapses        INTEGER NOT NULL DEFAULT 0
+  lapses        INTEGER NOT NULL DEFAULT 0,
+  points        TEXT
 );
 CREATE TABLE IF NOT EXISTS reviews (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,6 +93,10 @@ class Store:
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        cols = [r[1] for r in self.db.execute("PRAGMA table_info(cards)")]
+        if "points" not in cols:  # older recall.db files
+            self.db.execute("ALTER TABLE cards ADD COLUMN points TEXT")
+            self.db.commit()
 
     # ---- clock (the offset lets you demo a whole week in seconds) ----------
     def _offset(self) -> int:
@@ -139,6 +176,45 @@ class Store:
             "interval_days": interval,
             "ease": round(ease, 2),
             "due": due.isoformat(),
+        }
+
+    # ---- teach-back ---------------------------------------------------------
+    def add_concept(self, deck: str, title: str, key_points: list[dict]) -> int:
+        """Add a concept the user must explain in their own words."""
+        cleaned = [
+            {"point": kp["point"].strip(), "keywords": [k.strip() for k in kp["keywords"] if k.strip()]}
+            for kp in key_points
+            if kp.get("point", "").strip() and kp.get("keywords")
+        ]
+        if not cleaned:
+            raise ValueError("give at least one key point with some keywords")
+        cur = self.db.execute(
+            "INSERT INTO cards(deck, front, back, due, points) VALUES(?,?,?,?,?)",
+            (
+                deck,
+                f"Explain {title.strip()} in your own words.",
+                "; ".join(kp["point"] for kp in cleaned),
+                self.today().isoformat(),
+                json.dumps(cleaned),
+            ),
+        )
+        self.db.commit()
+        return cur.lastrowid
+
+    def teach_back(self, card_id: int, explanation: str) -> dict:
+        """Score a spoken explanation against the card's key points, then reschedule."""
+        row = self.db.execute("SELECT points FROM cards WHERE id=?", (card_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"no card with id {card_id}")
+        if not row["points"]:
+            raise ValueError("this card has no key points; use grade_answer instead")
+        covered, missed, ratio = score_explanation(explanation, json.loads(row["points"]))
+        graded = self.grade(card_id, rating_for(ratio))
+        return {
+            "covered": covered,
+            "missed": missed,
+            "coverage": round(ratio, 2),
+            **{k: graded[k] for k in ("rating", "interval_days", "due")},
         }
 
     # ---- progress -----------------------------------------------------------
