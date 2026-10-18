@@ -8,6 +8,8 @@ a guess.
 
 Built for the **Alexa+ track** of the Amazon Developer Hackathon.
 
+The scheduling and teach-back scoring are also published as a standalone library: [recall-engine](https://github.com/vlaksh26/recall-engine).
+
 ## Why an MCP server
 A chat model can't reliably remember what you studied last Tuesday or when a
 card is next due. Recall keeps that state on the server and exposes it as MCP
