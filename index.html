@@ -23,7 +23,7 @@ button{cursor:pointer}button.go{background:var(--acc);color:#04202b;border:0}but
 <div class="row"><input id="in" type="text" placeholder="Say something, e.g. quiz me" autocomplete="off">
 <button class="go" id="send">Send</button><button id="mic" title="Needs Chrome">Mic</button></div>
 <div class="row"><button data-q="load the demo deck">Load demo deck</button><button data-q="quiz me">Quiz me</button>
-<button data-q="how am I doing">Progress</button><button data-q="skip a day">Skip a day</button>
+<button data-q="how am I doing">Progress</button><button data-q="skip a day">Skip a day</button><button id="hf">Hands-free: off</button>
 <label><input type="checkbox" id="speak" checked> Speak replies</label></div></section>
 <section><h2>MCP calls (live)</h2><div id="calls"></div></section></main>
 <script>
@@ -33,17 +33,25 @@ function addCall(c){const d=document.createElement('div');d.className='call';
 d.innerHTML='<code></code> <span></span><small></small>';d.children[0].textContent=c.tool;
 d.children[1].textContent=c.ms+' ms';d.children[2].textContent=JSON.stringify(c.args)+' → '+(c.speech||'');
 calls.prepend(d)}
-function speak(t){if(!$('speak').checked||!window.speechSynthesis)return;speechSynthesis.cancel();
-const u=new SpeechSynthesisUtterance(t);u.onstart=()=>$('ring').classList.add('on');u.onend=()=>$('ring').classList.remove('on');speechSynthesis.speak(u)}
+let handsfree=false,rec=null,listening=false,misses=0;
+function listen(){if(!rec||listening)return;try{rec.start();listening=true;$('mic').classList.add('on')}catch(e){}}
+function afterReply(){if(handsfree)setTimeout(listen,500)}
+function setHandsfree(on){handsfree=on;misses=0;$('hf').textContent='Hands-free: '+(on?'on':'off');$('hf').classList.toggle('on',on);
+if(on){speechSynthesis.cancel();listen()}else if(rec&&listening)rec.stop()}
+function speak(t){if(!$('speak').checked||!window.speechSynthesis){afterReply();return}speechSynthesis.cancel();
+const u=new SpeechSynthesisUtterance(t);u.onstart=()=>$('ring').classList.add('on');
+u.onend=()=>{$('ring').classList.remove('on');afterReply()};speechSynthesis.speak(u)}
 async function send(text){text=text.trim();if(!text)return;bubble('you',text);input.value='';
 try{const r=await fetch('/api/say',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
-const d=await r.json();bubble('alexa',d.reply);(d.trace||[]).forEach(addCall);speak(d.reply)}
+const d=await r.json();bubble('alexa',d.reply);(d.trace||[]).forEach(addCall);if(/\b(stop|cancel)\b/i.test(text))setHandsfree(false);speak(d.reply)}
 catch(e){bubble('alexa','Something went wrong: '+e)}}
 $('send').onclick=()=>send(input.value);input.onkeydown=e=>{if(e.key==='Enter')send(input.value)};
 document.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>send(b.dataset.q));
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-if(SR){const rec=new SR();rec.lang='en-US';rec.onresult=e=>send(e.results[0][0].transcript);
-rec.onend=()=>$('mic').classList.remove('on');$('mic').onclick=()=>{speechSynthesis.cancel();rec.start();$('mic').classList.add('on')}}
-else{$('mic').disabled=true}
+if(SR){rec=new SR();rec.lang='en-US';rec.onresult=e=>{misses=0;send(e.results[0][0].transcript)};
+rec.onend=()=>{listening=false;$('mic').classList.remove('on')};
+rec.onerror=e=>{if(e.error==='no-speech'&&handsfree){if(++misses>=3){setHandsfree(false);bubble('alexa',"I didn't hear anything, so I stopped listening.")}else setTimeout(listen,300)}};
+$('mic').onclick=()=>{speechSynthesis.cancel();listen()};$('hf').onclick=()=>setHandsfree(!handsfree)}
+else{$('mic').disabled=true;$('hf').disabled=true}
 bubble('alexa','Hi! Try "load the demo deck", then "quiz me".');
 </script></body></html>
