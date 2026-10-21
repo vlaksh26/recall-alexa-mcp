@@ -1,57 +1,384 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Recall: simulated Alexa+</title>
-<style>
-:root{--bg:#0f1720;--card:#18222e;--fg:#e8eef5;--mut:#8aa0b5;--acc:#31c4f3}
-*{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;background:var(--bg);color:var(--fg)}
-main{display:grid;grid-template-columns:1fr 340px;gap:16px;max-width:1000px;margin:0 auto;padding:16px}
-@media(max-width:760px){main{grid-template-columns:1fr}}
-section{background:var(--card);border-radius:14px;padding:16px}h1{font-size:18px;margin:0 0 4px}h2{font-size:14px;margin:0 0 10px;color:var(--mut)}
-#ring{width:56px;height:56px;border-radius:50%;border:5px solid #26465a;margin:8px auto 12px;transition:.2s}
-#ring.on{border-color:var(--acc);box-shadow:0 0 18px var(--acc)}
-#log{height:330px;overflow:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
-.b{padding:8px 12px;border-radius:12px;max-width:85%}.you{background:#27415a;align-self:flex-end}.alexa{background:#12303b;border:1px solid #1f4a5b}
-.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}input[type=text]{flex:1;min-width:140px}
-input,button{font:inherit;padding:8px 12px;border-radius:10px;border:1px solid #2b3d4f;background:#0f1720;color:var(--fg)}
-button{cursor:pointer}button.go{background:var(--acc);color:#04202b;border:0}button.on{background:#c0392b}button:disabled{opacity:.4}
-.call{border-left:3px solid var(--acc);padding:6px 10px;margin-bottom:8px;background:#101a24;border-radius:6px;font-size:13px}
-.call code{color:#9fe3ff}.call small{color:var(--mut);display:block;word-break:break-word}
-#calls{max-height:520px;overflow:auto}
-</style></head><body><main>
-<section><h1>Recall on Alexa+ (simulated)</h1><h2>Speak with the mic, or type. Replies are spoken aloud.</h2>
-<div id="ring"></div><div id="log"></div>
-<div class="row"><input id="in" type="text" placeholder="Say something, e.g. quiz me" autocomplete="off">
-<button class="go" id="send">Send</button><button id="mic" title="Needs Chrome">Mic</button></div>
-<div class="row"><button data-q="load the demo deck">Load demo deck</button><button data-q="quiz me">Quiz me</button>
-<button data-q="how am I doing">Progress</button><button data-q="skip a day">Skip a day</button><button id="hf">Hands-free: off</button>
-<label><input type="checkbox" id="speak" checked> Speak replies</label></div></section>
-<section><h2>MCP calls (live)</h2><div id="calls"></div></section></main>
-<script>
-const $=id=>document.getElementById(id),log=$('log'),calls=$('calls'),input=$('in');
-function bubble(who,text){const d=document.createElement('div');d.className='b '+who;d.textContent=text;log.append(d);log.scrollTop=log.scrollHeight}
-function addCall(c){const d=document.createElement('div');d.className='call';
-d.innerHTML='<code></code> <span></span><small></small>';d.children[0].textContent=c.tool;
-d.children[1].textContent=c.ms+' ms';d.children[2].textContent=JSON.stringify(c.args)+' → '+(c.speech||'');
-calls.prepend(d)}
-let handsfree=false,rec=null,listening=false,misses=0;
-function listen(){if(!rec||listening)return;try{rec.start();listening=true;$('mic').classList.add('on')}catch(e){}}
-function afterReply(){if(handsfree)setTimeout(listen,500)}
-function setHandsfree(on){handsfree=on;misses=0;$('hf').textContent='Hands-free: '+(on?'on':'off');$('hf').classList.toggle('on',on);
-if(on){speechSynthesis.cancel();listen()}else if(rec&&listening)rec.stop()}
-function speak(t){if(!$('speak').checked||!window.speechSynthesis){afterReply();return}speechSynthesis.cancel();
-const u=new SpeechSynthesisUtterance(t);u.onstart=()=>$('ring').classList.add('on');
-u.onend=()=>{$('ring').classList.remove('on');afterReply()};speechSynthesis.speak(u)}
-async function send(text){text=text.trim();if(!text)return;bubble('you',text);input.value='';
-try{const r=await fetch('/api/say',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
-const d=await r.json();bubble('alexa',d.reply);(d.trace||[]).forEach(addCall);if(/\b(stop|cancel)\b/i.test(text))setHandsfree(false);speak(d.reply)}
-catch(e){bubble('alexa','Something went wrong: '+e)}}
-$('send').onclick=()=>send(input.value);input.onkeydown=e=>{if(e.key==='Enter')send(input.value)};
-document.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>send(b.dataset.q));
-const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-if(SR){rec=new SR();rec.lang='en-US';rec.onresult=e=>{misses=0;send(e.results[0][0].transcript)};
-rec.onend=()=>{listening=false;$('mic').classList.remove('on')};
-rec.onerror=e=>{if(e.error==='no-speech'&&handsfree){if(++misses>=3){setHandsfree(false);bubble('alexa',"I didn't hear anything, so I stopped listening.")}else setTimeout(listen,300)}};
-$('mic').onclick=()=>{speechSynthesis.cancel();listen()};$('hf').onclick=()=>setHandsfree(!handsfree)}
-else{$('mic').disabled=true;$('hf').disabled=true}
-bubble('alexa','Hi! Try "load the demo deck", then "quiz me".');
-</script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a1020">
+  <title>Recall — Alexa+ Memory Lab</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+    :root{
+      color-scheme:dark;
+      --bg:#080d19;--panel:#101827;--panel-2:#131e30;--panel-3:#18263a;
+      --line:rgba(169,190,225,.13);--line-strong:rgba(169,190,225,.22);
+      --text:#f2f6ff;--muted:#91a2bd;--muted-2:#657791;
+      --cyan:#72e2f4;--blue:#7aa7ff;--violet:#b39aff;--green:#68e3b1;
+      --shadow:0 24px 70px rgba(0,0,0,.28);--radius:22px;
+    }
+    *{box-sizing:border-box}
+    html{min-height:100%;background:var(--bg)}
+    body{margin:0;min-height:100vh;font-family:'DM Sans',system-ui,sans-serif;color:var(--text);
+      background:radial-gradient(ellipse at 16% -10%,rgba(75,119,214,.20),transparent 38%),
+                 radial-gradient(ellipse at 100% 22%,rgba(82,214,229,.09),transparent 28%),var(--bg)}
+    button,input{font:inherit}
+    button{cursor:pointer}
+    button:focus-visible,input:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+    .app-shell{max-width:1500px;margin:0 auto;padding:26px 30px 30px}
+    .topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:28px}
+    .brand{display:flex;align-items:center;gap:13px;min-width:0}
+    .brand-mark{height:44px;width:44px;display:grid;place-items:center;border-radius:15px;
+      background:linear-gradient(145deg,rgba(114,226,244,.23),rgba(122,167,255,.12));
+      border:1px solid rgba(114,226,244,.28);box-shadow:inset 0 1px rgba(255,255,255,.1)}
+    .brand-mark svg{width:25px;height:25px}
+    .brand-name{font:800 18px 'Manrope',sans-serif;letter-spacing:-.5px}
+    .brand-sub{font-size:11px;letter-spacing:1.7px;text-transform:uppercase;color:var(--muted);margin-top:2px}
+    .top-actions{display:flex;align-items:center;gap:10px}
+    .status-pill{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);
+      border-radius:999px;background:rgba(16,24,39,.72);color:#bdcbe0;font-size:12px}
+    .status-dot{height:7px;width:7px;border-radius:50%;background:var(--green);box-shadow:0 0 12px rgba(104,227,177,.65)}
+    .version{font-size:12px;color:var(--muted);padding-left:7px}
+    .intro{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:24px}
+    .eyebrow{display:flex;align-items:center;gap:8px;color:var(--cyan);font-size:11px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;margin-bottom:11px}
+    .eyebrow:before{content:"";height:1px;width:24px;background:var(--cyan)}
+    h1,h2,p{margin-top:0}
+    h1{font:800 clamp(29px,3.4vw,43px)/1.12 'Manrope',sans-serif;letter-spacing:-1.7px;margin-bottom:10px}
+    .gradient-text{background:linear-gradient(100deg,#f5f7ff 8%,#a6eaf4 60%,#a9baff);-webkit-background-clip:text;background-clip:text;color:transparent}
+    .intro-copy{max-width:660px;color:var(--muted);font-size:14px;line-height:1.7;margin:0}
+    .intro-badge{flex-shrink:0;display:flex;align-items:center;gap:10px;padding:12px 15px;border-radius:15px;border:1px solid var(--line);background:rgba(16,24,39,.6);color:#c4d2e8;font-size:12px}
+    .intro-badge svg{width:19px;height:19px;color:var(--violet)}
+    .workspace{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(320px,.8fr);gap:20px;align-items:stretch}
+    .panel{border:1px solid var(--line);background:linear-gradient(155deg,rgba(19,30,48,.97),rgba(13,21,35,.98));border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;min-width:0}
+    .panel-head{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:21px 23px;border-bottom:1px solid var(--line)}
+    .panel-title-wrap{display:flex;align-items:center;gap:12px;min-width:0}
+    .panel-icon{width:38px;height:38px;display:grid;place-items:center;flex-shrink:0;border-radius:13px;background:rgba(114,226,244,.09);border:1px solid rgba(114,226,244,.16);color:var(--cyan)}
+    .panel-icon svg{width:19px;height:19px}
+    .panel-title{font:700 15px 'Manrope',sans-serif;margin:0;letter-spacing:-.25px}
+    .panel-caption{font-size:12px;color:var(--muted);margin:4px 0 0}
+    .tiny-label{font-size:10px;text-transform:uppercase;letter-spacing:1.4px;color:var(--muted-2);white-space:nowrap}
+    .chat-panel{display:flex;flex-direction:column;min-height:660px}
+    .assistant-status{display:flex;align-items:center;gap:7px;color:var(--green);font-size:11px;font-weight:600}
+    .assistant-status .status-dot{height:6px;width:6px}
+    .chat-stage{padding:22px 23px 0;display:flex;flex-direction:column;flex:1;min-height:0}
+    .assistant-hero{display:flex;align-items:center;gap:14px;padding:15px 17px;margin-bottom:20px;border-radius:17px;
+      border:1px solid rgba(114,226,244,.14);background:linear-gradient(110deg,rgba(114,226,244,.075),rgba(122,167,255,.045))}
+    .orb{height:47px;width:47px;position:relative;display:grid;place-items:center;flex-shrink:0;border-radius:50%;
+      background:radial-gradient(circle at 35% 28%,#e4fcff 0,#72e2f4 18%,#468bbd 45%,#263e78 74%,#18233e 100%);
+      box-shadow:0 0 26px rgba(114,226,244,.22),inset 0 0 12px rgba(255,255,255,.4)}
+    .orb:after{content:"";position:absolute;inset:-5px;border:1px solid rgba(114,226,244,.2);border-radius:50%}
+    .orb.active{animation:pulse 1.5s ease-in-out infinite}
+    .orb svg{width:20px;height:20px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.3))}
+    @keyframes pulse{0%,100%{box-shadow:0 0 20px rgba(114,226,244,.2)}50%{box-shadow:0 0 34px rgba(114,226,244,.5)}}
+    .hero-text strong{display:block;font:700 13px 'Manrope',sans-serif;margin-bottom:4px}
+    .hero-text span{display:block;color:var(--muted);font-size:12px;line-height:1.5}
+    .hero-tag{margin-left:auto;align-self:flex-start;color:#a4eaf5;background:rgba(114,226,244,.08);border:1px solid rgba(114,226,244,.16);border-radius:8px;padding:6px 8px;font-size:10px;letter-spacing:.5px;white-space:nowrap}
+    #log{display:flex;flex-direction:column;gap:13px;flex:1;min-height:235px;max-height:370px;overflow:auto;padding:0 4px 18px 0;scroll-behavior:smooth}
+    #log::-webkit-scrollbar,#calls::-webkit-scrollbar{width:5px}
+    #log::-webkit-scrollbar-thumb,#calls::-webkit-scrollbar-thumb{background:#34435a;border-radius:99px}
+    .message{display:flex;align-items:flex-end;gap:9px;max-width:91%;animation:rise .22s ease-out}
+    .message.you{align-self:flex-end;flex-direction:row-reverse}
+    .message-avatar{width:27px;height:27px;display:grid;place-items:center;flex-shrink:0;border-radius:9px;border:1px solid var(--line);background:#1c2a40;color:var(--cyan);font-size:10px;font-weight:800}
+    .you .message-avatar{background:#29375a;color:#c8d4ff}
+    .message-body{min-width:0}
+    .message-meta{font-size:10px;color:var(--muted-2);margin:0 0 5px 3px}
+    .you .message-meta{text-align:right;margin-right:3px}
+    .b{padding:11px 14px;border-radius:15px;border:1px solid var(--line);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+    .alexa .b{background:linear-gradient(135deg,#17293b,#142133);border-top-left-radius:5px;color:#e1eafa}
+    .you .b{background:linear-gradient(135deg,#344777,#29385e);border-color:rgba(146,169,255,.23);border-top-right-radius:5px;color:#f3f5ff}
+    .chat-footer{padding:17px 23px 22px;border-top:1px solid var(--line);background:rgba(8,13,25,.25)}
+    .input-wrap{display:flex;align-items:center;gap:8px;padding:6px;border:1px solid var(--line-strong);border-radius:15px;background:#0b1321;transition:border-color .2s,box-shadow .2s}
+    .input-wrap:focus-within{border-color:rgba(114,226,244,.48);box-shadow:0 0 0 3px rgba(114,226,244,.06)}
+    #in{min-width:0;flex:1;padding:10px 11px;border:0;outline:0;background:transparent;color:var(--text);font-size:13px}
+    #in::placeholder{color:#647590}
+    .icon-btn,.send-btn{height:40px;display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:11px;border:1px solid var(--line);transition:transform .18s,background .18s,border-color .18s}
+    .icon-btn{width:40px;background:#131e30;color:#9eafc9}
+    .icon-btn svg,.send-btn svg{width:17px;height:17px}
+    .icon-btn:hover{border-color:var(--line-strong);background:#1a2a41;color:#fff}
+    .icon-btn.on{color:#ffb1b1;background:rgba(211,75,92,.16);border-color:rgba(255,111,125,.38)}
+    .send-btn{padding:0 15px;background:linear-gradient(135deg,#8ce9f4,#7bb7ff);border:0;color:#071526;font-size:12px;font-weight:800;box-shadow:0 6px 18px rgba(114,226,244,.12)}
+    .send-btn:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(114,226,244,.2)}
+    .send-btn:disabled{opacity:.5;cursor:wait;transform:none}
+    .quick-actions{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:13px}
+    .quick-btn{border:1px solid var(--line);background:rgba(21,32,50,.65);border-radius:9px;padding:8px 10px;color:#b7c5da;font-size:11px;transition:.18s}
+    .quick-btn:hover{background:#1b2b42;border-color:rgba(114,226,244,.28);color:#eafaff}
+    .quick-btn span{color:var(--cyan);margin-right:5px}
+    .footer-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:13px}
+    .check-label{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px;cursor:pointer}
+    input[type=checkbox]{accent-color:var(--cyan);width:14px;height:14px}
+    .hf-btn{border:1px solid var(--line);background:transparent;border-radius:9px;padding:8px 10px;color:var(--muted);font-size:11px}
+    .hf-btn.on{color:#ffb8bf;border-color:rgba(255,111,125,.35);background:rgba(211,75,92,.12)}
+    .side-column{display:flex;flex-direction:column;gap:20px;min-width:0}
+    .metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:18px 20px 20px}
+    .metric{padding:14px;border:1px solid var(--line);border-radius:15px;background:rgba(8,14,25,.28)}
+    .metric-label{color:var(--muted);font-size:10px;letter-spacing:.7px;text-transform:uppercase;margin-bottom:9px}
+    .metric-value{font:800 24px 'Manrope',sans-serif;letter-spacing:-1px}
+    .metric-foot{font-size:10px;color:var(--muted-2);margin-top:5px}
+    .metric-value.cyan{color:var(--cyan)}.metric-value.violet{color:var(--violet)}
+    .trace-panel{display:flex;flex-direction:column;flex:1;min-height:330px}
+    .trace-head-right{display:flex;align-items:center;gap:8px}
+    .live-tag{display:flex;align-items:center;gap:6px;color:var(--green);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px}
+    .live-tag:before{content:"";height:6px;width:6px;border-radius:50%;background:var(--green);box-shadow:0 0 9px rgba(104,227,177,.55)}
+    .clear-btn{border:0;background:transparent;color:var(--muted-2);font-size:11px;padding:5px}
+    .clear-btn:hover{color:var(--text)}
+    #calls{padding:15px 18px 18px;overflow:auto;max-height:490px;min-height:220px;flex:1}
+    .empty-trace{height:100%;min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:22px;color:var(--muted)}
+    .empty-icon{height:46px;width:46px;display:grid;place-items:center;border-radius:15px;background:rgba(179,154,255,.08);border:1px solid rgba(179,154,255,.16);color:var(--violet);margin-bottom:13px}
+    .empty-icon svg{width:22px;height:22px}
+    .empty-trace strong{font:700 12px 'Manrope',sans-serif;color:#cbd6e8;margin-bottom:7px}
+    .empty-trace span{font-size:11px;line-height:1.6;max-width:210px}
+    .call{position:relative;padding:13px 13px 12px 15px;margin-bottom:10px;border:1px solid var(--line);border-radius:13px;background:rgba(8,14,25,.48);animation:rise .2s ease-out}
+    .call:before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:2px;border-radius:2px;background:linear-gradient(var(--cyan),var(--blue))}
+    .call-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+    .call code{color:var(--cyan);font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+    .call-ms{padding:4px 6px;border-radius:6px;background:rgba(104,227,177,.08);color:var(--green);font-size:10px;white-space:nowrap}
+    .call small{color:#8192ad;display:block;word-break:break-word;font:10px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+    .bottom-note{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px;padding:0 3px;color:#5e6e87;font-size:10px}
+    .bottom-note span{display:flex;align-items:center;gap:7px}
+    .bottom-note svg{width:13px;height:13px;color:#7285a2}
+    @keyframes rise{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+    @media(min-width:1200px){.app-shell{padding-top:34px}.chat-panel{min-height:720px}#log{max-height:420px}}
+    @media(max-width:900px){.app-shell{padding:20px}.workspace{grid-template-columns:minmax(0,1fr)}.chat-panel{min-height:640px}.side-column{display:grid;grid-template-columns:1fr 1.2fr;align-items:stretch}.metrics{align-content:start}.trace-panel{min-height:350px}}
+    @media(max-width:620px){.app-shell{padding:14px}.topbar{margin-bottom:22px}.brand-mark{width:39px;height:39px}.brand-name{font-size:16px}.status-pill{font-size:0;padding:10px}.status-pill .status-dot{margin:0}.version{display:none}.intro{display:block;margin-bottom:19px}.intro-badge{display:inline-flex;margin-top:15px}.workspace{gap:14px}.panel{border-radius:18px}.panel-head{padding:17px}.chat-stage{padding:16px 15px 0}.chat-footer{padding:14px 15px 17px}.assistant-hero{padding:13px;gap:11px}.hero-tag{display:none}.side-column{display:flex}.metrics{padding:14px;gap:8px}.metric{padding:12px}.metric-value{font-size:21px}#calls{padding:13px;max-height:340px}.trace-panel{min-height:300px}.bottom-note{align-items:flex-start;flex-direction:column}.quick-actions{gap:6px}.quick-btn{padding:8px}.message{max-width:96%}}
+    @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3M5.99 5.99l2.12 2.12m7.78 7.78 2.12 2.12m0-12.02-2.12 2.12m-7.78 7.78-2.12 2.12" stroke="#72e2f4" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="12" r="5.2" stroke="#d9fbff" stroke-width="1.6"/><circle cx="12" cy="12" r="1.7" fill="#72e2f4"/></svg>
+        </div>
+        <div><div class="brand-name">recall<span style="color:var(--cyan)">.</span></div><div class="brand-sub">Alexa+ memory lab</div></div>
+      </div>
+      <div class="top-actions">
+        <div class="status-pill"><span class="status-dot"></span> Interface ready</div>
+        <span class="version">SIMULATED ENVIRONMENT&nbsp; / &nbsp;v1.0</span>
+      </div>
+    </header>
+
+    <section class="intro">
+      <div>
+        <div class="eyebrow">Conversational intelligence</div>
+        <h1><span class="gradient-text">A memory that</span><br>moves with you.</h1>
+        <p class="intro-copy">Explore Recall, a simulated Alexa+ experience that helps you revisit learning, test what you know, and track the tools working behind every response.</p>
+      </div>
+      <div class="intro-badge">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 14.4 9.6 21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4L12 3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        <span>Talk naturally. Learn continuously.</span>
+      </div>
+    </section>
+
+    <main class="workspace">
+      <section class="panel chat-panel">
+        <div class="panel-head">
+          <div class="panel-title-wrap">
+            <div class="panel-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2v-9.5A7.5 7.5 0 0 1 10.5 4H12a8 8 0 0 1 8 7.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 10h8M8 13.5h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+            <div><h2 class="panel-title">Your conversation</h2><p class="panel-caption">Ask, practise, and pick up where you left off.</p></div>
+          </div>
+          <div class="assistant-status"><span class="status-dot"></span> Assistant ready</div>
+        </div>
+        <div class="chat-stage">
+          <div class="assistant-hero">
+            <div class="orb" id="orb" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5a2.5 2.5 0 0 0-2.5 2.5v5a2.5 2.5 0 0 0 5 0V6A2.5 2.5 0 0 0 12 3.5Z" stroke="white" stroke-width="1.6"/><path d="M6.5 10.5v.7a5.5 5.5 0 0 0 11 0v-.7M12 16.7v3M9 19.7h6" stroke="white" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+            <div class="hero-text"><strong>Recall voice assistant</strong><span>Ready when you are. Use your voice or type a message below.</span></div>
+            <span class="hero-tag">VOICE + TEXT</span>
+          </div>
+          <div id="log" aria-live="polite" aria-label="Conversation history"></div>
+        </div>
+        <div class="chat-footer">
+          <div class="input-wrap">
+            <input id="in" type="text" placeholder="Ask Recall something…" autocomplete="off" aria-label="Your message">
+            <button class="icon-btn" id="mic" title="Start voice input (requires browser support)" aria-label="Start voice input">
+              <svg viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3m-3 0h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </button>
+            <button class="send-btn" id="send"><span>Send</span><svg viewBox="0 0 24 24" fill="none"><path d="m4 12 15-7-4 14-3.5-5L4 12Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m11.5 14 4.5-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+          </div>
+          <div class="quick-actions" aria-label="Suggested prompts">
+            <button class="quick-btn" data-q="load the demo deck"><span>↗</span>Load demo deck</button>
+            <button class="quick-btn" data-q="quiz me"><span>✳</span>Quiz me</button>
+            <button class="quick-btn" data-q="how am I doing"><span>▥</span>Progress</button>
+            <button class="quick-btn" data-q="skip a day"><span>↷</span>Skip a day</button>
+          </div>
+          <div class="footer-tools">
+            <label class="check-label"><input type="checkbox" id="speak" checked> Speak replies aloud</label>
+            <button class="hf-btn" id="hf">◉&nbsp; Hands-free: off</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="side-column">
+        <section class="panel">
+          <div class="panel-head">
+            <div class="panel-title-wrap">
+              <div class="panel-icon" style="color:var(--violet);background:rgba(179,154,255,.09);border-color:rgba(179,154,255,.16)">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M4 19V5m0 14h16M8 15v-4m4 4V7m4 8v-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+              <div><h2 class="panel-title">Session overview</h2><p class="panel-caption">A live snapshot of this session.</p></div>
+            </div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><div class="metric-label">Messages</div><div class="metric-value cyan" id="messageCount">0</div><div class="metric-foot">In this conversation</div></div>
+            <div class="metric"><div class="metric-label">Tool calls</div><div class="metric-value violet" id="callCount">0</div><div class="metric-foot">Backend trace events</div></div>
+          </div>
+        </section>
+
+        <section class="panel trace-panel">
+          <div class="panel-head">
+            <div class="panel-title-wrap">
+              <div class="panel-icon" style="color:var(--green);background:rgba(104,227,177,.08);border-color:rgba(104,227,177,.15)">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M8 8 4 12l4 4m8-8 4 4-4 4m-2-12-4 16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+              <div><h2 class="panel-title">MCP activity</h2><p class="panel-caption">Tool calls and response traces.</p></div>
+            </div>
+            <div class="trace-head-right"><span class="live-tag">Live</span><button class="clear-btn" id="clearCalls" type="button">Clear</button></div>
+          </div>
+          <div id="calls">
+            <div class="empty-trace" id="emptyTrace">
+              <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M5 5h14v14H5zM8 9h8M8 12h5M8 15h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              <strong>Waiting for activity</strong>
+              <span>When Recall uses a tool, its name, duration, and input details will appear here.</span>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </main>
+    <footer class="bottom-note">
+      <span><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 19 6v5c0 4.5-3 7.5-7 10-4-2.5-7-5.5-7-10V6l7-3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Prototype interface · Alexa+ is simulated</span>
+      <span>Built for exploration &amp; learning</span>
+    </footer>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const log = $('log'), calls = $('calls'), input = $('in');
+    let handsfree = false, rec = null, listening = false, misses = 0;
+    let messageCount = 0, callCount = 0;
+
+    function bubble(who, text) {
+      const wrap = document.createElement('div');
+      wrap.className = 'message ' + who;
+      const avatar = document.createElement('div');
+      avatar.className = 'message-avatar';
+      avatar.textContent = who === 'you' ? 'YOU' : 'R';
+      const body = document.createElement('div');
+      body.className = 'message-body';
+      const meta = document.createElement('div');
+      meta.className = 'message-meta';
+      meta.textContent = who === 'you' ? 'You' : 'Recall assistant';
+      const content = document.createElement('div');
+      content.className = 'b';
+      content.textContent = text;
+      body.append(meta, content);
+      wrap.append(avatar, body);
+      log.append(wrap);
+      log.scrollTop = log.scrollHeight;
+      if (who === 'you') messageCount++;
+      $('messageCount').textContent = messageCount;
+    }
+
+    function addCall(c) {
+      const empty = $('emptyTrace');
+      if (empty) empty.remove();
+      const d = document.createElement('div');
+      d.className = 'call';
+      const top = document.createElement('div');
+      top.className = 'call-top';
+      const code = document.createElement('code');
+      code.textContent = c.tool || 'Unknown tool';
+      const ms = document.createElement('span');
+      ms.className = 'call-ms';
+      ms.textContent = (c.ms ?? '—') + (c.ms == null ? '' : ' ms');
+      const details = document.createElement('small');
+      details.textContent = JSON.stringify(c.args ?? {}) + ' → ' + (c.speech || '');
+      top.append(code, ms);
+      d.append(top, details);
+      calls.prepend(d);
+      callCount++;
+      $('callCount').textContent = callCount;
+    }
+
+    function listen() {
+      if (!rec || listening) return;
+      try { rec.start(); listening = true; $('mic').classList.add('on'); $('orb').classList.add('active'); }
+      catch (e) {}
+    }
+    function afterReply() { if (handsfree) setTimeout(listen, 500); }
+    function setHandsfree(on) {
+      handsfree = on; misses = 0;
+      $('hf').textContent = on ? '◉  Hands-free: on' : '◉  Hands-free: off';
+      $('hf').classList.toggle('on', on);
+      if (on) { if ('speechSynthesis' in window) speechSynthesis.cancel(); listen(); }
+      else if (rec && listening) rec.stop();
+    }
+    function speak(t) {
+      if (!$('speak').checked || !window.speechSynthesis) { afterReply(); return; }
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(t);
+      u.onstart = () => $('orb').classList.add('active');
+      u.onend = () => { $('orb').classList.remove('active'); afterReply(); };
+      u.onerror = () => { $('orb').classList.remove('active'); afterReply(); };
+      speechSynthesis.speak(u);
+    }
+    async function send(text) {
+      text = text.trim();
+      if (!text) return;
+      bubble('you', text);
+      input.value = '';
+      $('send').disabled = true;
+      try {
+        const r = await fetch('/api/say', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text})
+        });
+        if (!r.ok) throw new Error('Server returned ' + r.status + '. Is the Recall backend running?');
+        const d = await r.json();
+        bubble('alexa', d.reply || 'I received an empty response.');
+        (d.trace || []).forEach(addCall);
+        if (/\b(stop|cancel)\b/i.test(text)) setHandsfree(false);
+        speak(d.reply || '');
+      } catch (e) {
+        bubble('alexa', 'I couldn’t reach the Recall service. Check that the backend is running, then try again. (' + e.message + ')');
+      } finally {
+        $('send').disabled = false;
+        input.focus();
+      }
+    }
+
+    $('send').onclick = () => send(input.value);
+    input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input.value); } };
+    document.querySelectorAll('[data-q]').forEach(b => b.onclick = () => send(b.dataset.q));
+    $('clearCalls').onclick = () => {
+      calls.innerHTML = '<div class="empty-trace" id="emptyTrace"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M5 5h14v14H5zM8 9h8M8 12h5M8 15h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><strong>Waiting for activity</strong><span>When Recall uses a tool, its name, duration, and input details will appear here.</span></div>';
+      callCount = 0;
+      $('callCount').textContent = '0';
+    };
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SR) {
+      rec = new SR();
+      rec.lang = 'en-US';
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.onresult = e => { misses = 0; send(e.results[0][0].transcript); };
+      rec.onend = () => { listening = false; $('mic').classList.remove('on'); if (!handsfree) $('orb').classList.remove('active'); };
+      rec.onerror = e => {
+        listening = false;
+        $('mic').classList.remove('on');
+        if (e.error === 'no-speech' && handsfree) {
+          if (++misses >= 3) { setHandsfree(false); bubble('alexa', "I didn't hear anything, so I stopped listening."); }
+          else setTimeout(listen, 300);
+        }
+      };
+      $('mic').onclick = () => { if ('speechSynthesis' in window) speechSynthesis.cancel(); if (listening) { rec.stop(); } else listen(); };
+      $('hf').onclick = () => setHandsfree(!handsfree);
+    } else {
+      $('mic').disabled = true;
+      $('mic').title = 'Speech recognition is not supported in this browser. Try Chrome.';
+      $('hf').disabled = true;
+      $('hf').title = 'Speech recognition is not supported in this browser. Try Chrome.';
+    }
+    bubble('alexa', 'Hi! I’m Recall. Try “load the demo deck” to get started, or ask me to quiz you.');
+  </script>
+</body>
+</html>
